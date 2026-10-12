@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"raft-kv-store/kv"
@@ -156,5 +157,69 @@ func TestPutEmptyBody(t *testing.T) {
 
 	if putRR.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400 for empty body, got %d", putRR.Code)
+	}
+}
+
+func TestServerPersistenceAcrossRestart(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "server_data.json")
+
+	// Phase 1: Server 1 sets a key
+	store1, err := kv.NewPersistentStore(tempFile)
+	if err != nil {
+		t.Fatalf("failed to create store1: %v", err)
+	}
+	server1 := NewServer(store1)
+
+	putReq := httptest.NewRequest(http.MethodPut, "/kv/session", bytes.NewBufferString(`{"value":"active"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putRR := httptest.NewRecorder()
+	server1.ServeHTTP(putRR, putReq)
+
+	if putRR.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", putRR.Code)
+	}
+
+	// Phase 2: Simulate restart with Server 2 using same file
+	store2, err := kv.NewPersistentStore(tempFile)
+	if err != nil {
+		t.Fatalf("failed to create store2: %v", err)
+	}
+	server2 := NewServer(store2)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/kv/session", nil)
+	getRR := httptest.NewRecorder()
+	server2.ServeHTTP(getRR, getReq)
+
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 after restart, got %d", getRR.Code)
+	}
+
+	var getResp KVResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to parse get response: %v", err)
+	}
+	if getResp.Value != "active" {
+		t.Fatalf("expected 'active', got '%s'", getResp.Value)
+	}
+
+	// Phase 3: Delete and verify persistence across another restart
+	delReq := httptest.NewRequest(http.MethodDelete, "/kv/session", nil)
+	delRR := httptest.NewRecorder()
+	server2.ServeHTTP(delRR, delReq)
+	if delRR.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", delRR.Code)
+	}
+
+	store3, err := kv.NewPersistentStore(tempFile)
+	if err != nil {
+		t.Fatalf("failed to create store3: %v", err)
+	}
+	server3 := NewServer(store3)
+
+	getReq2 := httptest.NewRequest(http.MethodGet, "/kv/session", nil)
+	getRR2 := httptest.NewRecorder()
+	server3.ServeHTTP(getRR2, getReq2)
+	if getRR2.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after restart, got %d", getRR2.Code)
 	}
 }
