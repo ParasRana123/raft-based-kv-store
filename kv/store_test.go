@@ -1,6 +1,9 @@
 package kv
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestSetAndGet(t *testing.T) {
 	store := NewStore()
@@ -80,4 +83,41 @@ func TestKVStoreInterface(t *testing.T) {
 		t.Fatal("expected key to be deleted via KVStore interface")
 	}
 }
+
+func TestConcurrentAccess(t *testing.T) {
+	store := NewStore()
+	var wg sync.WaitGroup
+
+	numGoroutines := 50
+
+	// Concurrent writes
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			store.Set(string(rune('a'+id%26)), "val")
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			store.Get(string(rune('a' + id%26)))
+		}(i)
+	}
+
+	// Concurrent deletes
+	for i := 0; i < numGoroutines/2; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			store.Delete(string(rune('a' + id%26)))
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 
