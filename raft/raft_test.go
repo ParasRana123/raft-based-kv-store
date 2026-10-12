@@ -70,3 +70,61 @@ func TestRequestVote(t *testing.T) {
 		t.Fatal("expected second candidate in same term to be rejected")
 	}
 }
+
+func TestAppendEntriesHeartbeat(t *testing.T) {
+	applyCh := make(chan ApplyMsg, 16)
+	node := NewRaftNode("node-1", []string{"node-2"}, applyCh)
+
+	var reply AppendEntriesReply
+	node.AppendEntries(&AppendEntriesArgs{
+		Term:         2,
+		LeaderID:     "node-2",
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		Entries:      nil,
+		LeaderCommit: 0,
+	}, &reply)
+
+	if !reply.Success {
+		t.Fatal("expected heartbeat to succeed")
+	}
+
+	term, isLeader, role := node.GetState()
+	if term != 2 {
+		t.Fatalf("expected term 2, got %d", term)
+	}
+	if isLeader || role != Follower {
+		t.Fatalf("expected Follower role, got %s", role)
+	}
+}
+
+func TestAppendEntriesLogReplication(t *testing.T) {
+	applyCh := make(chan ApplyMsg, 16)
+	node := NewRaftNode("node-1", []string{"node-2"}, applyCh)
+
+	entries := []LogEntry{
+		{Index: 1, Term: 1, Data: "SET x 10"},
+		{Index: 2, Term: 1, Data: "SET y 20"},
+	}
+
+	var reply AppendEntriesReply
+	node.AppendEntries(&AppendEntriesArgs{
+		Term:         1,
+		LeaderID:     "node-2",
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		Entries:      entries,
+		LeaderCommit: 2,
+	}, &reply)
+
+	if !reply.Success {
+		t.Fatal("expected log entries to be accepted")
+	}
+
+	if node.commitIndex != 2 {
+		t.Fatalf("expected commitIndex to be 2, got %d", node.commitIndex)
+	}
+	if len(node.log) != 2 {
+		t.Fatalf("expected 2 log entries, got %d", len(node.log))
+	}
+}

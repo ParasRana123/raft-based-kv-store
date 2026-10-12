@@ -101,3 +101,62 @@ func (rn *RaftNode) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) 
 		reply.VoteGranted = false
 	}
 }
+
+// AppendEntries handles log replication and heartbeat RPCs from the leader.
+func (rn *RaftNode) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
+	// 1. Reply false if term < currentTerm
+	if args.Term < rn.currentTerm {
+		reply.Term = rn.currentTerm
+		reply.Success = false
+		return
+	}
+
+	// If term is greater or equal, acknowledge leader and step down to Follower
+	if args.Term > rn.currentTerm || rn.role != Follower {
+		rn.currentTerm = args.Term
+		rn.role = Follower
+		rn.votedFor = ""
+	}
+
+	reply.Term = rn.currentTerm
+
+	// 2. Check log consistency at prevLogIndex
+	if args.PrevLogIndex > 0 {
+		if args.PrevLogIndex > len(rn.log) {
+			reply.Success = false
+			return
+		}
+		if rn.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
+			reply.Success = false
+			return
+		}
+	}
+
+	// 3. Append any new entries not already in the log
+	for i, entry := range args.Entries {
+		index := args.PrevLogIndex + i + 1
+		if index <= len(rn.log) {
+			if rn.log[index-1].Term != entry.Term {
+				rn.log = rn.log[:index-1]
+				rn.log = append(rn.log, entry)
+			}
+		} else {
+			rn.log = append(rn.log, entry)
+		}
+	}
+
+	// 4. Update commit index
+	if args.LeaderCommit > rn.commitIndex {
+		lastNewIndex := args.PrevLogIndex + len(args.Entries)
+		if args.LeaderCommit < lastNewIndex {
+			rn.commitIndex = args.LeaderCommit
+		} else {
+			rn.commitIndex = lastNewIndex
+		}
+	}
+
+	reply.Success = true
+}
