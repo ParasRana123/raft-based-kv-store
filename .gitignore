@@ -14,3 +14,7 @@
 # Workspace / IDE
 .idea/
 .vscode/
+
+# Runtime data files
+data.json
+*.json.tmp
