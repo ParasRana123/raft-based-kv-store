@@ -57,7 +57,6 @@ func TestDelete(t *testing.T) {
 func TestDeleteNonExistentKey(t *testing.T) {
 	store := NewStore()
 
-	// Deleting a non-existent key should not panic
 	store.Delete("non_existent")
 
 	_, exists := store.Get("non_existent")
@@ -65,3 +64,20 @@ func TestDeleteNonExistentKey(t *testing.T) {
 		t.Fatal("expected key not to exist")
 	}
 }
+
+func TestKVStoreInterface(t *testing.T) {
+	var store KVStore = NewStore()
+
+	store.Set("interface_key", "value")
+	val, ok := store.Get("interface_key")
+	if !ok || val != "value" {
+		t.Fatalf("expected 'value', got '%s'", val)
+	}
+
+	store.Delete("interface_key")
+	_, ok = store.Get("interface_key")
+	if ok {
+		t.Fatal("expected key to be deleted via KVStore interface")
+	}
+}
+
