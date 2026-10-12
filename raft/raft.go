@@ -59,3 +59,45 @@ func (rn *RaftNode) GetState() (int, bool, NodeRole) {
 
 	return rn.currentTerm, rn.role == Leader, rn.role
 }
+
+// RequestVote handles incoming vote requests from candidate nodes.
+func (rn *RaftNode) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
+	// 1. Reply false if term < currentTerm
+	if args.Term < rn.currentTerm {
+		reply.Term = rn.currentTerm
+		reply.VoteGranted = false
+		return
+	}
+
+	// If term is higher, step down to Follower and update term
+	if args.Term > rn.currentTerm {
+		rn.currentTerm = args.Term
+		rn.role = Follower
+		rn.votedFor = ""
+	}
+
+	reply.Term = rn.currentTerm
+
+	// 2. Check if already voted in this term
+	canVote := rn.votedFor == "" || rn.votedFor == args.CandidateID
+
+	// Check candidate's log is up-to-date
+	lastLogIndex := len(rn.log)
+	lastLogTerm := 0
+	if lastLogIndex > 0 {
+		lastLogTerm = rn.log[lastLogIndex-1].Term
+	}
+
+	logOk := args.LastLogTerm > lastLogTerm ||
+		(args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex)
+
+	if canVote && logOk {
+		rn.votedFor = args.CandidateID
+		reply.VoteGranted = true
+	} else {
+		reply.VoteGranted = false
+	}
+}
